@@ -1,0 +1,532 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>9:16 Animation Playground with Improved Features</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #viewport {  
+            width: 100vw;  
+            height: 177.78vw; /* 16:9 aspect ratio */  
+            max-height: 100vh;  
+            max-width: 56.25vh; /* 9:16 aspect ratio */  
+            margin: auto;  
+            position: absolute;  
+            top: 0; bottom: 0; /* vertical center */  
+            left: 0; right: 0; /* horizontal center */  
+            background-color: black;  
+            overflow: hidden;  
+            /* 新增：使用 flexbox 使内容居中 */  
+            display: flex;  
+            justify-content: center;  
+            align-items: center;  
+        }
+        #code-editor-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            height: 80vh;
+            background-color: rgba(30, 30, 30, 0.8);
+            color: #d4d4d4;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            z-index: 1000;
+        }
+        #drag-handle {
+            padding: 10px;
+            background-color: rgba(37, 37, 38, 0.8);
+            cursor: move;
+            user-select: none;
+        }
+        #code-editor {
+            flex: 1;
+            width: 100%;
+            resize: none;
+            border: none;
+            padding: 10px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            background-color: transparent;
+            color: #d4d4d4;
+        }
+        #controls {
+            padding: 10px;
+            background-color: rgba(37, 37, 38, 0.8);
+            border-top: 1px solid #333;
+        }
+        #video-preview {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 2000;
+        }
+        #trim-controls {
+            margin-top: 10px;
+        }
+        #frame-preview {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        #frame-preview img {
+            width: 100px;
+            height: 56px;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body>
+    <div id="viewport"></div>
+    <div id="code-editor-panel">
+        <div id="drag-handle">Code Editor</div>
+        <textarea id="code-editor" spellcheck="false"></textarea>
+        <div id="controls">
+            <button id="executeBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
+                Execute
+            </button>
+            <input type="file" id="videoInput" accept="video/*" multiple class="mt-2">
+            <button id="clearBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded ml-2">
+                Clear Videos
+            </button>
+            <div class="mt-2">
+                <input type="text" id="configName" placeholder="Configuration Name" class="p-2 rounded">
+                <button id="exportBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded ml-2">
+                    Export
+                </button>
+                <input type="file" id="importInput" accept=".json" class="mt-2">
+                <button id="importBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded ml-2">
+                    Import
+                </button>
+ <!-- 新增的录制按钮 -->  
+ <button id="recordBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded mt-2">  
+ Start Recording </button>  
+            </div>
+        </div>
+    </div>
+
+    <div id="video-preview">
+        <video id="preview-video" controls width="400"></video>
+        <div id="trim-controls">
+            <input type="range" id="start-trim" min="0" max="100" value="0">
+            <input type="range" id="end-trim" min="0" max="100" value="100">
+            <div id="frame-preview">
+                <img id="start-frame" src="" alt="Start Frame">
+                <img id="end-frame" src="" alt="End Frame">
+            </div>
+            <button id="save-trim" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded mt-2">
+                Save Trim
+            </button>
+        </div>
+    </div>
+
+    <script>
+    const viewport = document.getElementById('viewport');
+    const codeEditorPanel = document.getElementById('code-editor-panel');
+    const dragHandle = document.getElementById('drag-handle');
+    const codeEditor = document.getElementById('code-editor');
+    const executeBtn = document.getElementById('executeBtn');
+    const videoInput = document.getElementById('videoInput');
+    const clearBtn = document.getElementById('clearBtn');
+    const videoPreview = document.getElementById('video-preview');
+    const previewVideo = document.getElementById('preview-video');
+    const startTrim = document.getElementById('start-trim');
+    const endTrim = document.getElementById('end-trim');
+    const saveTrim = document.getElementById('save-trim');
+    const startFrame = document.getElementById('start-frame');
+    const endFrame = document.getElementById('end-frame');
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importInput = document.getElementById('importInput');
+    const configName = document.getElementById('configName');
+
+    let videoList = [];
+    let userCode = '';
+
+    function executeUserCode(code) {
+        if (window.cleanupAnimation) {
+            window.cleanupAnimation();
+        }
+
+        viewport.innerHTML = code;
+        const scripts = viewport.getElementsByTagName('script');
+        Array.from(scripts).forEach(script => {
+            const newScript = document.createElement('script');
+            Array.from(script.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+            newScript.appendChild(document.createTextNode(script.innerHTML));
+            script.parentNode.replaceChild(newScript, script);
+        });
+    }
+
+    function makeDraggable(element, handle) {
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        handle.onmousedown = dragMouseDown;
+
+        function dragMouseDown(e) {
+            e = e || window.event;
+            e.preventDefault();
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            document.onmouseup = closeDragElement;
+            document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+            e = e || window.event;
+            e.preventDefault();
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            element.style.top = (element.offsetTop - pos2) + "px";
+            element.style.left = (element.offsetLeft - pos1) + "px";
+        }
+
+        function closeDragElement() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        }
+    }
+
+    function handleExecuteClick() {
+        const userCode = codeEditor.value;
+        executeUserCode(userCode);
+    }
+
+    function handleVideoUpload(event) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            Array.from(files).forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const videoBlob = new Blob([e.target.result], { type: file.type });
+                    const videoURL = URL.createObjectURL(videoBlob);
+                    showVideoPreview(videoURL, file.name, index);
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+    }
+
+    function showVideoPreview(videoURL, fileName, index) {
+        previewVideo.src = videoURL;
+        videoPreview.style.display = 'block';
+
+        previewVideo.onloadedmetadata = function() {
+            startTrim.max = endTrim.max = previewVideo.duration;
+            startTrim.value = 0;
+            endTrim.value = previewVideo.duration;
+            updateFramePreviews();
+        };
+
+        saveTrim.onclick = function() {
+            const start = parseFloat(startTrim.value);
+            const end = parseFloat(endTrim.value);
+            videoList.push({
+                name: fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_"),
+                url: videoURL,
+                start: start,
+                end: end
+            });
+            videoPreview.style.display = 'none';
+            if (index === videoInput.files.length - 1) {
+                updateVideoInEditor(true);
+            }
+        };
+    }
+
+    function updateFramePreviews() {
+        const startTime = parseFloat(startTrim.value);
+        const endTime = parseFloat(endTrim.value);
+        
+        updateFrame(startTime, startFrame, '开始');
+        updateFrame(endTime, endFrame, '结束');
+    }
+
+    function updateFrame(time, frameElement, label) {
+        previewVideo.currentTime = time;
+        previewVideo.onseeked = () => {
+            frameElement.src = getVideoFrame(previewVideo);
+            frameElement.title = `${label}: ${time.toFixed(2)}秒`;
+            previewVideo.onseeked = null;
+        };
+    }
+
+    function getVideoFrame(video) {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL();
+    }
+
+    function handleClearVideos() {
+        videoList = [];
+        videoInput.value = '';
+        updateVideoInEditor(true);
+    }
+
+    function updateVideoInEditor(executeCode = false) {
+        const videoListString = JSON.stringify(videoList);
+        
+        if (!userCode) {
+            userCode = getDefaultCode();
+        }
+        
+        const updatedCode = userCode.replace(
+            /const videoList = \[.*?\];/s,
+            `const videoList = ${videoListString};`
+        );
+        
+        codeEditor.value = updatedCode;
+        
+        if (executeCode) {
+            executeUserCode(updatedCode);
+        }
+    }
+
+    function getDefaultCode() {
+        const videoListString = JSON.stringify(videoList);
+
+        return `
+<style>
+.flame {
+    width: 10px;
+    height: 10px;
+    background-color: orange;
+    border-radius: 50%;
+    position: absolute;
+    filter: blur(2px);
+}
+
+@keyframes flicker {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+    100% { opacity: 1; transform: scale(1); }
+}
+</style>
+
+<div id="video-container" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
+    <video id="background-video" style="position: absolute; width: 100%; height: 100%; object-fit: cover;">
+        Your browser does not support the video tag.
+    </video>
+    <div id="animation-layer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;"></div>
+</div>
+
+<script>
+(function() {
+    const videoList = ${videoListString};
+
+    const video = document.getElementById('background-video');
+    const animationLayer = document.getElementById('animation-layer');
+    let currentVideoIndex = 0;
+
+    function loadNextVideo() {
+        if (currentVideoIndex >= videoList.length) {
+            currentVideoIndex = 0;
+        }
+        
+        if (videoList.length > 0) {
+            const currentVideo = videoList[currentVideoIndex];
+            video.src = currentVideo.url;
+            video.currentTime = currentVideo.start;
+            video.play().catch(e => console.error("视频播放失败:", e));
+        } else {
+            console.warn("视频列表为空");
+        }
+    }
+
+    video.addEventListener('ended', function() {
+        currentVideoIndex++;
+        loadNextVideo();
+    });
+
+    function createFlame() {
+        const flame = document.createElement('div');
+        flame.className = 'flame';
+        flame.style.left = Math.random() * 100 + '%';
+        flame.style.bottom = '0';
+        flame.style.animation = \`flicker \${0.5 + Math.random()}s infinite\`;
+        animationLayer.appendChild(flame);
+
+        let position = 0;
+        function rise() {
+            position += 1;
+            flame.style.bottom = position + 'px';
+            if (position < animationLayer.offsetHeight) {
+                requestAnimationFrame(rise);
+            } else {
+                flame.remove();
+            }
+        }
+        rise();
+    }
+
+    const flameInterval = setInterval(createFlame, 200);
+
+    animationLayer.addEventListener('click', () => {
+        if (video.paused) {
+            video.play();
+        } else {
+            video.pause();
+        }
+    });
+
+    loadNextVideo();
+
+    window.cleanupAnimation = function() {
+        clearInterval(flameInterval);
+        animationLayer.innerHTML = '';
+        video.pause();
+        video.src = '';
+    };
+})();
+<\/script>
+    `.trim();
+    }
+
+    function exportConfig() {
+        const config = {
+            name: configName.value || 'Untitled Configuration',
+            code: codeEditor.value,
+            videoList: videoList
+        };
+        const blob = new Blob([JSON.stringify(config)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${config.name}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+function importConfig(event) {  
+    const file = event.target.files[0];  
+    if (file) {  
+        const reader = new FileReader();  
+        reader.onload = function(e) {  
+            try {  
+                const config = JSON.parse(e.target.result);  
+                userCode = config.code; // 更新 userCode  
+                codeEditor.value = config.code;  
+                videoList = config.videoList;  
+                configName.value = config.name;  
+                
+                // 更新视频列表在代码中的部分  
+                updateVideoInEditor(false);  
+                
+                // 执行更新后的代码  
+                executeUserCode(codeEditor.value);  
+                
+                console.log("Configuration imported successfully");  
+            } catch (error) {  
+                console.error("Error importing configuration:", error);  
+                alert("Failed to import configuration. Please check the file format.");  
+            }  
+        };  
+        reader.readAsText(file);  
+    }  
+}  
+recordBtn.innerText = 'Start Recording';  
+recordBtn.className = 'bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded mt-2';  
+document.getElementById('controls').appendChild(recordBtn);  
+
+let mediaRecorder;  
+let recordedChunks = [];  
+
+recordBtn.addEventListener('click', () => {  
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {  
+    startRecording();  
+    recordBtn.innerText = 'Stop Recording';  
+  } else {  
+    stopRecording();  
+    recordBtn.innerText = 'Start Recording';  
+  }  
+});  
+
+async function startRecording() {  
+  try {  
+    const stream = await navigator.mediaDevices.getDisplayMedia({  
+      video: { mediaSource: 'screen' },  
+      audio: true //  添加 audio: true 来请求音频流  
+    });  
+    mediaRecorder = new MediaRecorder(stream);  
+
+    mediaRecorder.ondataavailable = function(event) {  
+      if (event.data.size > 0) {  
+        recordedChunks.push(event.data);  
+      }  
+    };  
+
+    mediaRecorder.onstop = function() {  
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });  
+      const url = URL.createObjectURL(blob);  
+      downloadRecording(url);  
+      recordedChunks = [];  
+    };  
+
+    mediaRecorder.start();  
+  } catch (error) {  
+    console.error('Error accessing screen capture:', error);  
+    alert('屏幕录制失败，请检查浏览器权限设置。');  
+  }  
+}  
+
+function stopRecording() {  
+  if (mediaRecorder) {  
+    mediaRecorder.stop();  
+  }  
+}  
+
+function downloadRecording(url) {  
+  const a = document.createElement('a');  
+  a.href = url;  
+  a.download = 'recording.webm';  
+  a.click();  
+  URL.revokeObjectURL(url);  
+}    startTrim.addEventListener('input', () => updateFrame(parseFloat(startTrim.value), startFrame, '开始'));
+    endTrim.addEventListener('input', () => updateFrame(parseFloat(endTrim.value), endFrame, '结束'));
+    executeBtn.addEventListener('click', handleExecuteClick);
+    videoInput.addEventListener('change', handleVideoUpload);
+    clearBtn.addEventListener('click', handleClearVideos);
+    exportBtn.addEventListener('click', exportConfig);
+    importBtn.addEventListener('click', () => importInput.click());
+// 更新事件监听器  
+importInput.addEventListener('change', (event) => {  
+    importConfig(event);  
+    importInput.value = ''; // 重置文件输入，允许重复导入相同文件  
+});  
+
+// 确保在页面加载时初始化 userCode  
+window.addEventListener('load', () => {  
+    userCode = getDefaultCode();  
+    codeEditor.value = userCode;  
+});  
+
+    makeDraggable(codeEditorPanel, dragHandle);
+
+    codeEditor.addEventListener('input', () => {
+        userCode = codeEditor.value;
+    });
+
+    codeEditor.value = getDefaultCode();
+    executeUserCode(codeEditor.value);
+</script>
